@@ -63,49 +63,61 @@ type OptimizationResult = {
   best_options: OptimizationCase[];
 };
 
+const API_BASE_URL =
+  process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000";
+
 const scenarioPresets = [
   {
-    name: "High resonance case",
-    description: "Default near-resonance machine mount.",
+    name: "High resonance",
+    tag: "Critical",
     scenario:
       "A rotating machine vibrates heavily at 480 RPM. The mount feels unstable and the vibration increases near operating speed.",
   },
   {
-    name: "Safe high-stiffness case",
-    description: "Same speed, but stiffer mount shifts natural frequency.",
+    name: "Safe stiff mount",
+    tag: "Stable",
     scenario:
       "A pump with mass 20 kg operates at 480 RPM. The mount stiffness is 125000 N/m, damping is 120 Ns/m, and excitation force is 100 N.",
   },
   {
-    name: "Low damping case",
-    description: "Weak damping increases vibration amplification.",
+    name: "Low damping",
+    tag: "Amplified",
     scenario:
       "A fan with mass 20 kg vibrates at 480 RPM. The mount stiffness is 50000 N/m, damping is 20 Ns/m, and excitation force is 100 N.",
   },
   {
-    name: "Heavy pump case",
-    description: "Heavier equipment changes the natural frequency.",
+    name: "Heavy pump",
+    tag: "Shifted mode",
     scenario:
       "A pump with mass 60 kg vibrates at 480 RPM. The mount stiffness is 50000 N/m, damping is 120 Ns/m, and excitation force is 100 N.",
   },
 ];
 
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000";
-
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
 }
 
-function riskTextColor(risk: string) {
-  if (risk === "high") return "text-red-400";
-  if (risk === "moderate") return "text-yellow-400";
-  return "text-cyan-400";
+function riskLabelColor(risk: string) {
+  if (risk === "high") return "text-red-300 border-red-400/40 bg-red-500/10";
+  if (risk === "moderate")
+    return "text-amber-300 border-amber-400/40 bg-amber-500/10";
+  return "text-emerald-300 border-emerald-400/40 bg-emerald-500/10";
+}
+
+function riskDotColor(risk: string) {
+  if (risk === "high") return "bg-red-400";
+  if (risk === "moderate") return "bg-amber-400";
+  return "bg-emerald-400";
+}
+
+function formatNumber(value: number) {
+  return value.toLocaleString(undefined, {
+    maximumFractionDigits: 0,
+  });
 }
 
 export default function Home() {
   const [scenario, setScenario] = useState(scenarioPresets[0].scenario);
-
   const [result, setResult] = useState<SimulationResult | null>(null);
   const [interpretation, setInterpretation] =
     useState<ScenarioInterpretation | null>(null);
@@ -115,6 +127,7 @@ export default function Home() {
 
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [error, setError] = useState("");
 
   const [mass, setMass] = useState(20);
   const [stiffness, setStiffness] = useState(50000);
@@ -136,7 +149,7 @@ export default function Home() {
       stiffness_N_m: stiffness,
       damping_Ns_m: damping,
       force_N: force,
-      rpm: rpm,
+      rpm,
     };
   }
 
@@ -164,6 +177,10 @@ export default function Home() {
       }
     );
 
+    if (!simulationResponse.ok) {
+      throw new Error("Simulation request failed.");
+    }
+
     const optimizationResponse = await fetch(
       `${API_BASE_URL}/optimize/vibration`,
       {
@@ -175,6 +192,10 @@ export default function Home() {
       }
     );
 
+    if (!optimizationResponse.ok) {
+      throw new Error("Optimization request failed.");
+    }
+
     const simulationData = await simulationResponse.json();
     const optimizationData = await optimizationResponse.json();
 
@@ -183,80 +204,114 @@ export default function Home() {
   }
 
   async function generateTwin() {
-    setLoading(true);
-    setResult(null);
-    setOptimization(null);
+    try {
+      setLoading(true);
+      setError("");
+      setResult(null);
+      setOptimization(null);
 
-    const interpretResponse = await fetch(`${API_BASE_URL}/interpret/scenario`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        scenario: scenario,
-      }),
-    });
+      const interpretResponse = await fetch(
+        `${API_BASE_URL}/interpret/scenario`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            scenario,
+          }),
+        }
+      );
 
-    const interpreted: ScenarioInterpretation = await interpretResponse.json();
-    setInterpretation(interpreted);
+      if (!interpretResponse.ok) {
+        throw new Error("Scenario interpretation failed.");
+      }
 
-    await runModel(interpreted.parameters);
+      const interpreted: ScenarioInterpretation = await interpretResponse.json();
+      setInterpretation(interpreted);
 
-    setLoading(false);
+      await runModel(interpreted.parameters);
+    } catch (caughtError) {
+      setError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Something went wrong."
+      );
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function runCurrentControls() {
-    setLoading(true);
+    try {
+      setLoading(true);
+      setError("");
 
-    const params = currentSliderParams();
+      const params = currentSliderParams();
 
-    setInterpretation((current) =>
-      current
-        ? {
-            ...current,
-            parameters: params,
-          }
-        : {
-            solver_family: "vibration / resonance",
-            model: "forced mass-spring-damper",
-            assumptions: [
-              "single-degree-of-freedom vibration model",
-              "sinusoidal forcing from rotating machine",
-              "linear spring and viscous damper",
-              "rigid machine mass",
-            ],
-            parameters: params,
-          }
-    );
+      setInterpretation((current) =>
+        current
+          ? {
+              ...current,
+              parameters: params,
+            }
+          : {
+              solver_family: "vibration / resonance",
+              model: "forced mass-spring-damper",
+              assumptions: [
+                "single-degree-of-freedom vibration model",
+                "sinusoidal forcing from rotating machine",
+                "linear spring and viscous damper",
+                "rigid machine mass",
+              ],
+              parameters: params,
+            }
+      );
 
-    await runModel(params);
-
-    setLoading(false);
+      await runModel(params);
+    } catch (caughtError) {
+      setError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Something went wrong."
+      );
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function applyOptimizationOption(option: OptimizationCase) {
-    setLoading(true);
+    try {
+      setLoading(true);
+      setError("");
 
-    const nextParams = {
-      mass_kg: option.mass_kg,
-      stiffness_N_m: option.stiffness_N_m,
-      damping_Ns_m: option.damping_Ns_m,
-      force_N: option.force_N,
-      rpm: option.rpm,
-    };
+      const nextParams = {
+        mass_kg: option.mass_kg,
+        stiffness_N_m: option.stiffness_N_m,
+        damping_Ns_m: option.damping_Ns_m,
+        force_N: option.force_N,
+        rpm: option.rpm,
+      };
 
-    setInterpretation((current) =>
-      current
-        ? {
-            ...current,
-            parameters: nextParams,
-          }
-        : current
-    );
+      setInterpretation((current) =>
+        current
+          ? {
+              ...current,
+              parameters: nextParams,
+            }
+          : current
+      );
 
-    await runModel(nextParams);
-
-    setLoading(false);
+      await runModel(nextParams);
+    } catch (caughtError) {
+      setError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Something went wrong."
+      );
+    } finally {
+      setLoading(false);
+    }
   }
 
   const chartData =
@@ -266,17 +321,6 @@ export default function Home() {
     })) ?? [];
 
   const peakDisplacementMm = result ? result.peak_displacement_m * 1000 : 0;
-
-  const riskColor = result
-    ? riskTextColor(result.resonance_risk)
-    : "text-cyan-400";
-
-  const riskBorder =
-    result?.resonance_risk === "high"
-      ? "border-red-500/40"
-      : result?.resonance_risk === "moderate"
-      ? "border-yellow-500/40"
-      : "border-cyan-500/40";
 
   const ratioPosition = result
     ? clamp((result.frequency_ratio / 2) * 100, 0, 100)
@@ -309,10 +353,10 @@ export default function Home() {
 
   const recommendation =
     result?.resonance_risk === "high"
-      ? "Critical resonance proximity detected. Increase stiffness, increase damping, reduce excitation force, or shift operating speed away from the natural frequency."
+      ? "The operating speed is close to the system natural frequency. Shift speed, increase damping, or change mount stiffness before continuous operation."
       : result?.resonance_risk === "moderate"
-      ? "The system is operating near a sensitive frequency range. Check damping, mounting stiffness, and operating-speed variation."
-      : "The system is currently away from resonance. Continue monitoring displacement amplitude and damping margin.";
+      ? "The system is close enough to resonance to justify monitoring and design review. Small parameter changes may reduce amplitude."
+      : "The system is currently away from the resonance zone. Maintain monitoring and verify assumptions against measured vibration data.";
 
   const reportText =
     result && interpretation
@@ -373,351 +417,382 @@ export default function Home() {
   }
 
   return (
-    <main className="min-h-screen bg-neutral-950 text-white">
-      <section className="mx-auto flex min-h-screen max-w-6xl flex-col px-6 py-10">
-        <div className="mb-10">
-          <p className="mb-3 text-sm uppercase tracking-[0.3em] text-cyan-400">
-            ScenarioTwin AI
-          </p>
+    <main className="min-h-screen bg-[#070A0F] text-neutral-100">
+      <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top_left,rgba(20,184,166,0.18),transparent_35%),radial-gradient(circle_at_top_right,rgba(59,130,246,0.14),transparent_30%)]" />
 
-          <h1 className="max-w-4xl text-5xl font-semibold leading-tight">
-            Turn engineering scenarios into interactive diagnostic twins.
-          </h1>
+      <section className="relative mx-auto max-w-7xl px-6 py-6">
+        <nav className="mb-8 flex items-center justify-between rounded-2xl border border-white/10 bg-white/[0.03] px-5 py-4 backdrop-blur">
+          <div>
+            <p className="text-xs uppercase tracking-[0.35em] text-cyan-300">
+              ScenarioTwin AI
+            </p>
+            <p className="mt-1 text-sm text-neutral-500">
+              Mechanical diagnostics platform
+            </p>
+          </div>
 
-          <p className="mt-5 max-w-2xl text-lg text-neutral-400">
-            Describe a mechanical fault scenario. ScenarioTwin extracts
-            operating conditions, runs a simplified physical model, diagnoses
-            the response, and recommends safer alternatives.
-          </p>
-        </div>
+          <div className="hidden items-center gap-3 md:flex">
+            <span className="rounded-full border border-emerald-400/30 bg-emerald-400/10 px-3 py-1 text-xs text-emerald-300">
+              Live API
+            </span>
+            <span className="rounded-full border border-white/10 px-3 py-1 text-xs text-neutral-400">
+              FastAPI + Next.js
+            </span>
+          </div>
+        </nav>
 
-        <div className="grid gap-6 lg:grid-cols-[1fr_1fr]">
-          <div className="rounded-3xl border border-neutral-800 bg-neutral-900/70 p-6">
-            <label className="text-sm text-neutral-300">
-              Engineering scenario
-            </label>
+        <header className="mb-8 grid gap-6 lg:grid-cols-[1.15fr_0.85fr]">
+          <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-8 shadow-2xl shadow-black/30">
+            <p className="mb-4 text-sm uppercase tracking-[0.25em] text-cyan-300">
+              Engineering simulation agent
+            </p>
 
-            <textarea
-              className="mt-3 h-44 w-full resize-none rounded-2xl border border-neutral-700 bg-neutral-950 p-4 text-neutral-100 outline-none focus:border-cyan-400"
-              value={scenario}
-              onChange={(event) => setScenario(event.target.value)}
-            />
+            <h1 className="max-w-4xl text-4xl font-semibold tracking-tight text-white md:text-6xl">
+              Diagnose rotating-machine resonance from a plain-English fault
+              scenario.
+            </h1>
 
-            <div className="mt-5">
-              <p className="mb-3 text-sm text-neutral-400">
-                Example scenarios
+            <p className="mt-5 max-w-3xl text-base leading-7 text-neutral-400 md:text-lg">
+              ScenarioTwin AI extracts operating parameters, runs a
+              mass-spring-damper vibration model, ranks mitigation options, and
+              generates an engineering report.
+            </p>
+
+            <div className="mt-8 grid gap-3 sm:grid-cols-3">
+              <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                <p className="text-xs uppercase tracking-widest text-neutral-500">
+                  Solver
+                </p>
+                <p className="mt-2 font-medium text-white">Vibration SDOF</p>
+              </div>
+
+              <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                <p className="text-xs uppercase tracking-widest text-neutral-500">
+                  Output
+                </p>
+                <p className="mt-2 font-medium text-white">Risk + response</p>
+              </div>
+
+              <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                <p className="text-xs uppercase tracking-widest text-neutral-500">
+                  Actions
+                </p>
+                <p className="mt-2 font-medium text-white">Optimize design</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-3xl border border-white/10 bg-neutral-950/70 p-6">
+            <p className="text-sm font-medium text-neutral-300">
+              System status
+            </p>
+
+            <div className="mt-5 space-y-4">
+              {[
+                "Scenario parser",
+                "Physics solver",
+                "Optimization engine",
+                "Report generator",
+              ].map((item) => (
+                <div
+                  key={item}
+                  className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3"
+                >
+                  <span className="text-sm text-neutral-300">{item}</span>
+                  <span className="h-2.5 w-2.5 rounded-full bg-emerald-400 shadow-[0_0_16px_rgba(52,211,153,0.9)]" />
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-6 rounded-2xl border border-cyan-400/20 bg-cyan-400/10 p-4">
+              <p className="text-sm leading-6 text-cyan-100">
+                Current model: linear forced vibration with viscous damping.
+                Best used for early-stage screening, not final certification.
               </p>
+            </div>
+          </div>
+        </header>
 
-              <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid gap-6 xl:grid-cols-[420px_1fr]">
+          <aside className="space-y-6">
+            <section className="rounded-3xl border border-white/10 bg-white/[0.04] p-5">
+              <div className="mb-4 flex items-center justify-between">
+                <h2 className="text-lg font-semibold text-white">
+                  Scenario input
+                </h2>
+                <span className="rounded-full border border-white/10 px-3 py-1 text-xs text-neutral-400">
+                  Natural language
+                </span>
+              </div>
+
+              <textarea
+                className="h-44 w-full resize-none rounded-2xl border border-white/10 bg-[#05070B] p-4 text-sm leading-6 text-neutral-100 outline-none transition focus:border-cyan-300/60"
+                value={scenario}
+                onChange={(event) => setScenario(event.target.value)}
+              />
+
+              <div className="mt-4 grid grid-cols-2 gap-3">
                 {scenarioPresets.map((preset) => (
                   <button
                     key={preset.name}
                     onClick={() => setScenario(preset.scenario)}
-                    className="rounded-2xl border border-neutral-800 bg-neutral-950 p-4 text-left hover:border-cyan-400/60 hover:bg-neutral-900"
+                    className="rounded-2xl border border-white/10 bg-black/20 p-3 text-left transition hover:border-cyan-300/50 hover:bg-cyan-300/10"
                   >
-                    <p className="text-sm font-semibold text-neutral-100">
+                    <p className="text-sm font-medium text-white">
                       {preset.name}
                     </p>
-                    <p className="mt-1 text-xs leading-5 text-neutral-500">
-                      {preset.description}
+                    <p className="mt-1 text-xs text-neutral-500">
+                      {preset.tag}
                     </p>
                   </button>
                 ))}
               </div>
-            </div>
 
-            <div className="mt-6 grid gap-5">
-              <div>
-                <label className="text-sm text-neutral-300">
-                  Mass: {mass} kg
-                </label>
-                <input
-                  type="range"
-                  min="5"
-                  max="100"
-                  step="5"
+              <div className="mt-5 grid gap-3">
+                <button
+                  onClick={generateTwin}
+                  disabled={loading}
+                  className="rounded-2xl bg-cyan-300 px-5 py-3 text-sm font-semibold text-neutral-950 transition hover:bg-cyan-200 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {loading ? "Running diagnostic..." : "Generate diagnostic twin"}
+                </button>
+
+                <button
+                  onClick={runCurrentControls}
+                  disabled={loading}
+                  className="rounded-2xl border border-white/10 px-5 py-3 text-sm font-semibold text-neutral-200 transition hover:border-cyan-300/50 hover:text-cyan-200 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Run current parameters
+                </button>
+              </div>
+
+              {error && (
+                <p className="mt-4 rounded-2xl border border-red-400/30 bg-red-500/10 p-3 text-sm text-red-200">
+                  {error}
+                </p>
+              )}
+            </section>
+
+            <section className="rounded-3xl border border-white/10 bg-white/[0.04] p-5">
+              <h2 className="text-lg font-semibold text-white">
+                Model controls
+              </h2>
+
+              <div className="mt-5 space-y-5">
+                <ControlSlider
+                  label="Machine mass"
                   value={mass}
-                  onChange={(event) => setMass(Number(event.target.value))}
-                  className="mt-3 w-full"
+                  suffix="kg"
+                  min={5}
+                  max={100}
+                  step={5}
+                  onChange={setMass}
                 />
-              </div>
 
-              <div>
-                <label className="text-sm text-neutral-300">
-                  Mount stiffness: {stiffness.toLocaleString()} N/m
-                </label>
-                <input
-                  type="range"
-                  min="10000"
-                  max="150000"
-                  step="5000"
+                <ControlSlider
+                  label="Mount stiffness"
                   value={stiffness}
-                  onChange={(event) => setStiffness(Number(event.target.value))}
-                  className="mt-3 w-full"
+                  suffix="N/m"
+                  min={10000}
+                  max={150000}
+                  step={5000}
+                  onChange={setStiffness}
+                  formatValue={formatNumber}
                 />
-              </div>
 
-              <div>
-                <label className="text-sm text-neutral-300">
-                  Damping: {damping} Ns/m
-                </label>
-                <input
-                  type="range"
-                  min="0"
-                  max="1000"
-                  step="20"
+                <ControlSlider
+                  label="Damping"
                   value={damping}
-                  onChange={(event) => setDamping(Number(event.target.value))}
-                  className="mt-3 w-full"
+                  suffix="Ns/m"
+                  min={0}
+                  max={1000}
+                  step={20}
+                  onChange={setDamping}
                 />
-              </div>
 
-              <div>
-                <label className="text-sm text-neutral-300">
-                  Excitation force: {force} N
-                </label>
-                <input
-                  type="range"
-                  min="10"
-                  max="500"
-                  step="10"
+                <ControlSlider
+                  label="Excitation force"
                   value={force}
-                  onChange={(event) => setForce(Number(event.target.value))}
-                  className="mt-3 w-full"
+                  suffix="N"
+                  min={10}
+                  max={500}
+                  step={10}
+                  onChange={setForce}
                 />
-              </div>
 
-              <div>
-                <label className="text-sm text-neutral-300">
-                  Operating speed: {rpm} RPM
-                </label>
-                <input
-                  type="range"
-                  min="200"
-                  max="1000"
-                  step="10"
+                <ControlSlider
+                  label="Operating speed"
                   value={rpm}
-                  onChange={(event) => setRpm(Number(event.target.value))}
-                  className="mt-3 w-full"
+                  suffix="RPM"
+                  min={200}
+                  max={1000}
+                  step={10}
+                  onChange={setRpm}
                 />
               </div>
-            </div>
+            </section>
+          </aside>
 
-            <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-              <button
-                onClick={generateTwin}
-                disabled={loading}
-                className="rounded-2xl bg-cyan-400 px-5 py-3 font-medium text-neutral-950 hover:bg-cyan-300 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {loading ? "Running..." : "Generate from scenario"}
-              </button>
-
-              <button
-                onClick={runCurrentControls}
-                disabled={loading}
-                className="rounded-2xl border border-neutral-700 px-5 py-3 font-medium text-neutral-200 hover:border-cyan-400 hover:text-cyan-300 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                Run current controls
-              </button>
-            </div>
-          </div>
-
-          <div className="rounded-3xl border border-neutral-800 bg-neutral-900/70 p-6">
-            <h2 className="text-xl font-semibold">Agent workflow</h2>
-
-            <div className="mt-6 space-y-4 text-sm text-neutral-300">
-              <p>✓ Scenario received</p>
-              <p>
-                {interpretation
-                  ? `✓ Solver family: ${interpretation.solver_family}`
-                  : "○ Solver family: waiting"}
-              </p>
-              <p>
-                {interpretation
-                  ? `✓ Model: ${interpretation.model}`
-                  : "○ Model: waiting"}
-              </p>
-              <p>✓ Backend simulation: ready</p>
-              <p className={result ? "text-cyan-400" : "text-neutral-500"}>
-                {result ? "✓ Diagnostic twin generated" : "○ Waiting for run"}
-              </p>
-            </div>
-
-            {interpretation && (
-              <div className="mt-8 rounded-2xl border border-neutral-800 bg-neutral-950 p-5">
-                <h3 className="mb-4 text-lg font-semibold">
-                  Current model parameters
-                </h3>
-
-                <div className="grid grid-cols-2 gap-3 text-sm text-neutral-300">
-                  <p>RPM: {interpretation.parameters.rpm}</p>
-                  <p>Mass: {interpretation.parameters.mass_kg} kg</p>
-                  <p>
-                    Stiffness:{" "}
-                    {interpretation.parameters.stiffness_N_m.toLocaleString()}{" "}
-                    N/m
-                  </p>
-                  <p>Damping: {interpretation.parameters.damping_Ns_m} Ns/m</p>
-                  <p>Force: {interpretation.parameters.force_N} N</p>
-                </div>
-              </div>
-            )}
-
-            {result && (
-              <div
-                className={`mt-6 rounded-2xl border ${riskBorder} bg-neutral-950 p-5`}
-              >
-                <h3 className="mb-4 text-lg font-semibold">
-                  Engineering diagnosis
-                </h3>
-
-                <p className="text-sm leading-6 text-neutral-300">
-                  The system is being excited at{" "}
-                  <span className="text-white">
-                    {result.forcing_frequency_hz.toFixed(2)} Hz
-                  </span>{" "}
-                  while its natural frequency is{" "}
-                  <span className="text-white">
-                    {result.natural_frequency_hz.toFixed(2)} Hz
-                  </span>
-                  . A frequency ratio near 1 indicates resonance risk.
-                </p>
-
-                <p className="mt-4 text-sm leading-6 text-neutral-300">
-                  {recommendation}
-                </p>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {result && (
-          <div className="mt-6 rounded-3xl border border-neutral-800 bg-neutral-900/70 p-6">
-            <div className="mb-6 flex items-center justify-between">
-              <div>
-                <h3 className="text-xl font-semibold">
-                  Resonance diagnostic cockpit
-                </h3>
-                <p className="mt-1 text-sm text-neutral-400">
-                  Key indicators from the simplified vibration model.
-                </p>
-              </div>
-
-              <div className={`text-2xl font-bold ${riskColor}`}>
-                {result.resonance_risk.toUpperCase()} RISK
-              </div>
-            </div>
-
+          <section className="space-y-6">
             <div className="grid gap-4 md:grid-cols-4">
-              <div className="rounded-2xl border border-neutral-800 bg-neutral-950 p-4">
-                <p className="text-xs uppercase tracking-widest text-neutral-500">
-                  Natural frequency
-                </p>
-                <p className="mt-2 text-2xl font-semibold">
-                  {result.natural_frequency_hz.toFixed(2)} Hz
-                </p>
-              </div>
-
-              <div className="rounded-2xl border border-neutral-800 bg-neutral-950 p-4">
-                <p className="text-xs uppercase tracking-widest text-neutral-500">
-                  Forcing frequency
-                </p>
-                <p className="mt-2 text-2xl font-semibold">
-                  {result.forcing_frequency_hz.toFixed(2)} Hz
-                </p>
-              </div>
-
-              <div className="rounded-2xl border border-neutral-800 bg-neutral-950 p-4">
-                <p className="text-xs uppercase tracking-widest text-neutral-500">
-                  Frequency ratio
-                </p>
-                <p className="mt-2 text-2xl font-semibold">
-                  {result.frequency_ratio.toFixed(2)}
-                </p>
-              </div>
-
-              <div className="rounded-2xl border border-neutral-800 bg-neutral-950 p-4">
-                <p className="text-xs uppercase tracking-widest text-neutral-500">
-                  Peak displacement
-                </p>
-                <p className="mt-2 text-2xl font-semibold">
-                  {peakDisplacementMm.toFixed(2)} mm
-                </p>
-              </div>
+              <MetricCard
+                label="Natural frequency"
+                value={
+                  result ? `${result.natural_frequency_hz.toFixed(2)} Hz` : "—"
+                }
+              />
+              <MetricCard
+                label="Forcing frequency"
+                value={
+                  result ? `${result.forcing_frequency_hz.toFixed(2)} Hz` : "—"
+                }
+              />
+              <MetricCard
+                label="Frequency ratio"
+                value={result ? result.frequency_ratio.toFixed(2) : "—"}
+              />
+              <MetricCard
+                label="Peak displacement"
+                value={result ? `${peakDisplacementMm.toFixed(2)} mm` : "—"}
+              />
             </div>
 
-            <div className="mt-8 grid gap-6 lg:grid-cols-3">
-              <div className="rounded-2xl border border-neutral-800 bg-neutral-950 p-5">
-                <div className="flex items-center justify-between">
-                  <p className="font-semibold">Frequency proximity</p>
-                  <p className={riskColor}>
-                    {result.frequency_ratio.toFixed(2)}
+            <div className="grid gap-6 lg:grid-cols-[1fr_340px]">
+              <section className="rounded-3xl border border-white/10 bg-white/[0.04] p-5">
+                <div className="mb-5 flex items-center justify-between">
+                  <div>
+                    <h2 className="text-lg font-semibold text-white">
+                      Displacement response
+                    </h2>
+                    <p className="mt-1 text-sm text-neutral-500">
+                      Simulated transient response over five seconds.
+                    </p>
+                  </div>
+
+                  {result && (
+                    <span
+                      className={`rounded-full border px-3 py-1 text-xs font-medium ${riskLabelColor(
+                        result.resonance_risk
+                      )}`}
+                    >
+                      {result.resonance_risk.toUpperCase()} RISK
+                    </span>
+                  )}
+                </div>
+
+                <div className="h-[360px] rounded-2xl border border-white/10 bg-[#05070B] p-4">
+                  {result ? (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={chartData}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
+                        <XAxis
+                          dataKey="time"
+                          stroke="#737373"
+                          tick={{ fill: "#a3a3a3", fontSize: 12 }}
+                        />
+                        <YAxis
+                          stroke="#737373"
+                          tick={{ fill: "#a3a3a3", fontSize: 12 }}
+                        />
+                        <Tooltip
+                          contentStyle={{
+                            background: "#080B12",
+                            border: "1px solid rgba(255,255,255,0.12)",
+                            borderRadius: "14px",
+                            color: "#f5f5f5",
+                          }}
+                        />
+                        <Line
+                          type="monotone"
+                          dataKey="displacement_mm"
+                          stroke="#67e8f9"
+                          strokeWidth={2.5}
+                          dot={false}
+                        />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div className="flex h-full items-center justify-center text-sm text-neutral-500">
+                      Run a scenario to generate the response curve.
+                    </div>
+                  )}
+                </div>
+              </section>
+
+              <section className="rounded-3xl border border-white/10 bg-white/[0.04] p-5">
+                <h2 className="text-lg font-semibold text-white">
+                  Diagnostic summary
+                </h2>
+
+                {result ? (
+                  <div className="mt-5 space-y-5">
+                    <div
+                      className={`rounded-2xl border p-4 ${riskLabelColor(
+                        result.resonance_risk
+                      )}`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <span
+                          className={`h-3 w-3 rounded-full ${riskDotColor(
+                            result.resonance_risk
+                          )}`}
+                        />
+                        <p className="font-semibold">
+                          {result.resonance_risk.toUpperCase()} RISK
+                        </p>
+                      </div>
+
+                      <p className="mt-3 text-sm leading-6 text-neutral-300">
+                        {recommendation}
+                      </p>
+                    </div>
+
+                    <Indicator
+                      label="Frequency proximity"
+                      value={result.frequency_ratio.toFixed(2)}
+                      percentage={ratioPosition}
+                    />
+
+                    <Indicator
+                      label="Amplitude severity"
+                      value={`${peakDisplacementMm.toFixed(2)} mm`}
+                      percentage={amplitudeSeverity}
+                    />
+
+                    <Indicator
+                      label="Damping level"
+                      value={result.damping_ratio.toFixed(3)}
+                      percentage={dampingSeverity}
+                    />
+                  </div>
+                ) : (
+                  <p className="mt-5 text-sm leading-6 text-neutral-500">
+                    The diagnosis will appear after the first simulation run.
                   </p>
-                </div>
-
-                <div className="relative mt-5 h-3 rounded-full bg-neutral-800">
-                  <div className="absolute left-1/2 top-[-6px] h-6 w-[2px] bg-red-400" />
-                  <div
-                    className="absolute top-[-4px] h-5 w-5 rounded-full bg-cyan-400 shadow-[0_0_20px_rgba(34,211,238,0.6)]"
-                    style={{ left: `calc(${ratioPosition}% - 10px)` }}
-                  />
-                </div>
-
-                <div className="mt-3 flex justify-between text-xs text-neutral-500">
-                  <span>0</span>
-                  <span>resonance zone</span>
-                  <span>2+</span>
-                </div>
-              </div>
-
-              <div className="rounded-2xl border border-neutral-800 bg-neutral-950 p-5">
-                <div className="flex items-center justify-between">
-                  <p className="font-semibold">Amplitude severity</p>
-                  <p>{peakDisplacementMm.toFixed(2)} mm</p>
-                </div>
-
-                <div className="mt-5 h-3 overflow-hidden rounded-full bg-neutral-800">
-                  <div
-                    className="h-full rounded-full bg-cyan-400"
-                    style={{ width: `${amplitudeSeverity}%` }}
-                  />
-                </div>
-
-                <p className="mt-3 text-xs text-neutral-500">
-                  Scaled against a 20 mm warning threshold.
-                </p>
-              </div>
-
-              <div className="rounded-2xl border border-neutral-800 bg-neutral-950 p-5">
-                <div className="flex items-center justify-between">
-                  <p className="font-semibold">Damping margin</p>
-                  <p>{result.damping_ratio.toFixed(3)}</p>
-                </div>
-
-                <div className="mt-5 h-3 overflow-hidden rounded-full bg-neutral-800">
-                  <div
-                    className="h-full rounded-full bg-cyan-400"
-                    style={{ width: `${dampingSeverity}%` }}
-                  />
-                </div>
-
-                <p className="mt-3 text-xs text-neutral-500">
-                  Higher damping reduces resonance amplification.
-                </p>
-              </div>
+                )}
+              </section>
             </div>
 
             {optimization && (
-              <div className="mt-8 rounded-2xl border border-neutral-800 bg-neutral-950 p-5">
-                <h4 className="text-lg font-semibold">
-                  Optimization recommendations
-                </h4>
+              <section className="rounded-3xl border border-white/10 bg-white/[0.04] p-5">
+                <div className="mb-5 flex items-center justify-between">
+                  <div>
+                    <h2 className="text-lg font-semibold text-white">
+                      Ranked mitigation options
+                    </h2>
+                    <p className="mt-1 text-sm text-neutral-500">
+                      Options are ranked by lowest simulated peak displacement.
+                    </p>
+                  </div>
 
-                <p className="mt-1 text-sm text-neutral-500">
-                  Ranked by lowest simulated peak displacement.
-                </p>
+                  {bestOption && (
+                    <span className="hidden rounded-full border border-emerald-400/30 bg-emerald-400/10 px-3 py-1 text-xs text-emerald-300 md:inline">
+                      Best reduction: {bestReduction.toFixed(1)}%
+                    </span>
+                  )}
+                </div>
 
-                <div className="mt-5 grid gap-4 lg:grid-cols-3">
+                <div className="grid gap-4 lg:grid-cols-3">
                   {optimization.best_options.slice(0, 3).map((option, index) => {
                     const baselineMm =
                       optimization.baseline.peak_displacement_m * 1000;
@@ -730,47 +805,45 @@ export default function Home() {
                     return (
                       <div
                         key={`${option.strategy}-${index}`}
-                        className="rounded-2xl border border-neutral-800 bg-neutral-900 p-4"
+                        className="rounded-2xl border border-white/10 bg-[#05070B] p-4"
                       >
-                        <p className="text-xs uppercase tracking-widest text-neutral-500">
-                          Option {index + 1}
-                        </p>
+                        <div className="flex items-center justify-between">
+                          <p className="text-xs uppercase tracking-widest text-neutral-500">
+                            Option {index + 1}
+                          </p>
 
-                        <h5 className="mt-2 font-semibold capitalize">
+                          <span
+                            className={`rounded-full border px-2 py-1 text-[11px] ${riskLabelColor(
+                              option.resonance_risk
+                            )}`}
+                          >
+                            {option.resonance_risk}
+                          </span>
+                        </div>
+
+                        <h3 className="mt-4 text-base font-semibold capitalize text-white">
                           {option.strategy}
-                        </h5>
+                        </h3>
 
-                        <p className="mt-3 text-sm leading-6 text-neutral-300">
+                        <p className="mt-3 min-h-12 text-sm leading-6 text-neutral-400">
                           {option.description}
                         </p>
 
-                        <div className="mt-4 space-y-2 text-sm text-neutral-400">
-                          <p>
-                            Peak displacement:{" "}
-                            <span className="text-white">
-                              {optionMm.toFixed(2)} mm
-                            </span>
-                          </p>
-
-                          <p>
-                            Reduction:{" "}
-                            <span className="text-white">
-                              {reduction.toFixed(1)}%
-                            </span>
-                          </p>
-
-                          <p>
-                            New risk:{" "}
-                            <span className={riskTextColor(option.resonance_risk)}>
-                              {option.resonance_risk.toUpperCase()}
-                            </span>
-                          </p>
+                        <div className="mt-4 grid grid-cols-2 gap-3">
+                          <MiniStat
+                            label="Peak"
+                            value={`${optionMm.toFixed(2)} mm`}
+                          />
+                          <MiniStat
+                            label="Reduction"
+                            value={`${reduction.toFixed(1)}%`}
+                          />
                         </div>
 
                         <button
                           onClick={() => applyOptimizationOption(option)}
                           disabled={loading}
-                          className="mt-5 w-full rounded-xl border border-cyan-400/40 px-4 py-2 text-sm font-medium text-cyan-300 hover:bg-cyan-400 hover:text-neutral-950 disabled:cursor-not-allowed disabled:opacity-60"
+                          className="mt-4 w-full rounded-xl border border-cyan-300/30 px-4 py-2 text-sm font-semibold text-cyan-200 transition hover:bg-cyan-300 hover:text-neutral-950 disabled:cursor-not-allowed disabled:opacity-60"
                         >
                           Apply option
                         </button>
@@ -778,81 +851,168 @@ export default function Home() {
                     );
                   })}
                 </div>
-              </div>
+              </section>
             )}
-          </div>
-        )}
 
-        {result && (
-          <div className="mt-6 rounded-3xl border border-neutral-800 bg-neutral-900/70 p-6">
-            <h3 className="mb-4 text-xl font-semibold">
-              Displacement response
-            </h3>
+            {interpretation && (
+              <section className="rounded-3xl border border-white/10 bg-white/[0.04] p-5">
+                <div className="grid gap-6 lg:grid-cols-[0.85fr_1.15fr]">
+                  <div>
+                    <h2 className="text-lg font-semibold text-white">
+                      Extracted model
+                    </h2>
 
-            <div className="h-80">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={chartData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#262626" />
-                  <XAxis
-                    dataKey="time"
-                    stroke="#a3a3a3"
-                    label={{
-                      value: "Time (s)",
-                      position: "insideBottom",
-                      offset: -5,
-                      fill: "#a3a3a3",
-                    }}
-                  />
-                  <YAxis
-                    stroke="#a3a3a3"
-                    label={{
-                      value: "Displacement (mm)",
-                      angle: -90,
-                      position: "insideLeft",
-                      fill: "#a3a3a3",
-                    }}
-                  />
-                  <Tooltip />
-                  <Line
-                    type="monotone"
-                    dataKey="displacement_mm"
-                    stroke="#22d3ee"
-                    strokeWidth={2}
-                    dot={false}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-        )}
+                    <div className="mt-5 space-y-3 text-sm">
+                      <ModelRow
+                        label="Solver family"
+                        value={interpretation.solver_family}
+                      />
+                      <ModelRow label="Model" value={interpretation.model} />
+                      <ModelRow
+                        label="Mass"
+                        value={`${interpretation.parameters.mass_kg} kg`}
+                      />
+                      <ModelRow
+                        label="Stiffness"
+                        value={`${formatNumber(
+                          interpretation.parameters.stiffness_N_m
+                        )} N/m`}
+                      />
+                      <ModelRow
+                        label="Damping"
+                        value={`${interpretation.parameters.damping_Ns_m} Ns/m`}
+                      />
+                      <ModelRow
+                        label="Speed"
+                        value={`${interpretation.parameters.rpm} RPM`}
+                      />
+                    </div>
+                  </div>
 
-        {result && interpretation && (
-          <div className="mt-6 rounded-3xl border border-neutral-800 bg-neutral-900/70 p-6">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <h3 className="text-xl font-semibold">Engineering report</h3>
-                <p className="mt-1 text-sm text-neutral-400">
-                  Auto-generated summary of the scenario, model, diagnosis, and
-                  recommended mitigation.
-                </p>
-              </div>
+                  {reportText && (
+                    <div>
+                      <div className="mb-3 flex items-center justify-between">
+                        <h2 className="text-lg font-semibold text-white">
+                          Engineering report
+                        </h2>
 
-              <button
-                onClick={copyReport}
-                className="rounded-2xl border border-cyan-400/40 px-5 py-3 text-sm font-medium text-cyan-300 hover:bg-cyan-400 hover:text-neutral-950"
-              >
-                {copied ? "Copied" : "Copy report"}
-              </button>
-            </div>
+                        <button
+                          onClick={copyReport}
+                          className="rounded-xl border border-white/10 px-4 py-2 text-xs font-semibold text-neutral-200 transition hover:border-cyan-300/40 hover:text-cyan-200"
+                        >
+                          {copied ? "Copied" : "Copy report"}
+                        </button>
+                      </div>
 
-            <div className="mt-6 rounded-2xl border border-neutral-800 bg-neutral-950 p-5">
-              <pre className="whitespace-pre-wrap text-sm leading-6 text-neutral-300">
-                {reportText}
-              </pre>
-            </div>
-          </div>
-        )}
+                      <pre className="max-h-[320px] overflow-auto rounded-2xl border border-white/10 bg-[#05070B] p-4 text-xs leading-6 text-neutral-400">
+                        {reportText}
+                      </pre>
+                    </div>
+                  )}
+                </div>
+              </section>
+            )}
+          </section>
+        </div>
       </section>
     </main>
+  );
+}
+
+function ControlSlider({
+  label,
+  value,
+  suffix,
+  min,
+  max,
+  step,
+  onChange,
+  formatValue,
+}: {
+  label: string;
+  value: number;
+  suffix: string;
+  min: number;
+  max: number;
+  step: number;
+  onChange: (value: number) => void;
+  formatValue?: (value: number) => string;
+}) {
+  return (
+    <div>
+      <div className="mb-2 flex items-center justify-between">
+        <label className="text-sm text-neutral-300">{label}</label>
+        <span className="text-sm font-medium text-white">
+          {formatValue ? formatValue(value) : value} {suffix}
+        </span>
+      </div>
+
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(event) => onChange(Number(event.target.value))}
+        className="w-full accent-cyan-300"
+      />
+    </div>
+  );
+}
+
+function MetricCard({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-5">
+      <p className="text-xs uppercase tracking-widest text-neutral-500">
+        {label}
+      </p>
+      <p className="mt-3 text-2xl font-semibold text-white">{value}</p>
+    </div>
+  );
+}
+
+function Indicator({
+  label,
+  value,
+  percentage,
+}: {
+  label: string;
+  value: string;
+  percentage: number;
+}) {
+  return (
+    <div>
+      <div className="mb-2 flex items-center justify-between">
+        <p className="text-sm text-neutral-300">{label}</p>
+        <p className="text-sm font-medium text-white">{value}</p>
+      </div>
+
+      <div className="h-2 overflow-hidden rounded-full bg-white/10">
+        <div
+          className="h-full rounded-full bg-cyan-300"
+          style={{ width: `${percentage}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function MiniStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+      <p className="text-[11px] uppercase tracking-widest text-neutral-500">
+        {label}
+      </p>
+      <p className="mt-1 text-sm font-semibold text-white">{value}</p>
+    </div>
+  );
+}
+
+function ModelRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between rounded-xl border border-white/10 bg-[#05070B] px-4 py-3">
+      <span className="text-neutral-500">{label}</span>
+      <span className="text-right text-neutral-200">{value}</span>
+    </div>
   );
 }
