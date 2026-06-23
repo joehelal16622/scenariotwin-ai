@@ -84,7 +84,9 @@ export default function Home() {
   const [optimization, setOptimization] = useState<OptimizationResult | null>(
     null
   );
+
   const [loading, setLoading] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   const [mass, setMass] = useState(20);
   const [stiffness, setStiffness] = useState(50000);
@@ -263,12 +265,87 @@ export default function Home() {
     ? clamp((result.damping_ratio / 0.3) * 100, 0, 100)
     : 0;
 
+  const bestOption = optimization?.best_options[0] ?? null;
+
+  const baselineDisplacementMm = optimization
+    ? optimization.baseline.peak_displacement_m * 1000
+    : peakDisplacementMm;
+
+  const bestOptionDisplacementMm = bestOption
+    ? bestOption.peak_displacement_m * 1000
+    : 0;
+
+  const bestReduction =
+    bestOption && baselineDisplacementMm > 0
+      ? ((baselineDisplacementMm - bestOptionDisplacementMm) /
+          baselineDisplacementMm) *
+        100
+      : 0;
+
   const recommendation =
     result?.resonance_risk === "high"
       ? "Critical resonance proximity detected. Increase stiffness, increase damping, reduce excitation force, or shift operating speed away from the natural frequency."
       : result?.resonance_risk === "moderate"
       ? "The system is operating near a sensitive frequency range. Check damping, mounting stiffness, and operating-speed variation."
       : "The system is currently away from resonance. Continue monitoring displacement amplitude and damping margin.";
+
+  const reportText =
+    result && interpretation
+      ? [
+          "ScenarioTwin AI Engineering Report",
+          "",
+          `Scenario: ${scenario}`,
+          "",
+          "Model setup:",
+          `- Solver family: ${interpretation.solver_family}`,
+          `- Model: ${interpretation.model}`,
+          `- Mass: ${interpretation.parameters.mass_kg} kg`,
+          `- Mount stiffness: ${interpretation.parameters.stiffness_N_m.toLocaleString()} N/m`,
+          `- Damping: ${interpretation.parameters.damping_Ns_m} Ns/m`,
+          `- Excitation force: ${interpretation.parameters.force_N} N`,
+          `- Operating speed: ${interpretation.parameters.rpm} RPM`,
+          "",
+          "Baseline simulation:",
+          `- Natural frequency: ${result.natural_frequency_hz.toFixed(2)} Hz`,
+          `- Forcing frequency: ${result.forcing_frequency_hz.toFixed(2)} Hz`,
+          `- Frequency ratio: ${result.frequency_ratio.toFixed(2)}`,
+          `- Damping ratio: ${result.damping_ratio.toFixed(3)}`,
+          `- Peak displacement: ${peakDisplacementMm.toFixed(2)} mm`,
+          `- Resonance risk: ${result.resonance_risk.toUpperCase()}`,
+          "",
+          "Engineering diagnosis:",
+          recommendation,
+          "",
+          bestOption
+            ? [
+                "Recommended optimization:",
+                `- Strategy: ${bestOption.strategy}`,
+                `- Action: ${bestOption.description}`,
+                `- New peak displacement: ${bestOptionDisplacementMm.toFixed(
+                  2
+                )} mm`,
+                `- Estimated displacement reduction: ${bestReduction.toFixed(
+                  1
+                )}%`,
+                `- New risk level: ${bestOption.resonance_risk.toUpperCase()}`,
+              ].join("\n")
+            : "Recommended optimization: No optimization result available.",
+          "",
+          "Assumptions:",
+          ...interpretation.assumptions.map((assumption) => `- ${assumption}`),
+        ].join("\n")
+      : "";
+
+  async function copyReport() {
+    if (!reportText) return;
+
+    await navigator.clipboard.writeText(reportText);
+    setCopied(true);
+
+    setTimeout(() => {
+      setCopied(false);
+    }, 1500);
+  }
 
   return (
     <main className="min-h-screen bg-neutral-950 text-white">
@@ -695,6 +772,33 @@ export default function Home() {
                   />
                 </LineChart>
               </ResponsiveContainer>
+            </div>
+          </div>
+        )}
+
+        {result && interpretation && (
+          <div className="mt-6 rounded-3xl border border-neutral-800 bg-neutral-900/70 p-6">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h3 className="text-xl font-semibold">Engineering report</h3>
+                <p className="mt-1 text-sm text-neutral-400">
+                  Auto-generated summary of the scenario, model, diagnosis, and
+                  recommended mitigation.
+                </p>
+              </div>
+
+              <button
+                onClick={copyReport}
+                className="rounded-2xl border border-cyan-400/40 px-5 py-3 text-sm font-medium text-cyan-300 hover:bg-cyan-400 hover:text-neutral-950"
+              >
+                {copied ? "Copied" : "Copy report"}
+              </button>
+            </div>
+
+            <div className="mt-6 rounded-2xl border border-neutral-800 bg-neutral-950 p-5">
+              <pre className="whitespace-pre-wrap text-sm leading-6 text-neutral-300">
+                {reportText}
+              </pre>
             </div>
           </div>
         )}
