@@ -90,6 +90,9 @@ const scenarioPresets = [
   },
 ];
 
+const API_BASE_URL =
+  process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000";
+
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
 }
@@ -151,7 +154,7 @@ export default function Home() {
     };
 
     const simulationResponse = await fetch(
-      "http://127.0.0.1:8000/simulate/vibration",
+      `${API_BASE_URL}/simulate/vibration`,
       {
         method: "POST",
         headers: {
@@ -162,7 +165,7 @@ export default function Home() {
     );
 
     const optimizationResponse = await fetch(
-      "http://127.0.0.1:8000/optimize/vibration",
+      `${API_BASE_URL}/optimize/vibration`,
       {
         method: "POST",
         headers: {
@@ -184,18 +187,15 @@ export default function Home() {
     setResult(null);
     setOptimization(null);
 
-    const interpretResponse = await fetch(
-      "http://127.0.0.1:8000/interpret/scenario",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          scenario: scenario,
-        }),
-      }
-    );
+    const interpretResponse = await fetch(`${API_BASE_URL}/interpret/scenario`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        scenario: scenario,
+      }),
+    });
 
     const interpreted: ScenarioInterpretation = await interpretResponse.json();
     setInterpretation(interpreted);
