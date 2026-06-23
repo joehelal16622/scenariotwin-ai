@@ -100,6 +100,16 @@ export default function Home() {
     setRpm(params.rpm);
   }
 
+  function currentSliderParams(): ModelParameters {
+    return {
+      mass_kg: mass,
+      stiffness_N_m: stiffness,
+      damping_Ns_m: damping,
+      force_N: force,
+      rpm: rpm,
+    };
+  }
+
   async function runModel(params: ModelParameters) {
     syncControls(params);
 
@@ -168,6 +178,35 @@ export default function Home() {
     setLoading(false);
   }
 
+  async function runCurrentControls() {
+    setLoading(true);
+
+    const params = currentSliderParams();
+
+    setInterpretation((current) =>
+      current
+        ? {
+            ...current,
+            parameters: params,
+          }
+        : {
+            solver_family: "vibration / resonance",
+            model: "forced mass-spring-damper",
+            assumptions: [
+              "single-degree-of-freedom vibration model",
+              "sinusoidal forcing from rotating machine",
+              "linear spring and viscous damper",
+              "rigid machine mass",
+            ],
+            parameters: params,
+          }
+    );
+
+    await runModel(params);
+
+    setLoading(false);
+  }
+
   async function applyOptimizationOption(option: OptimizationCase) {
     setLoading(true);
 
@@ -201,7 +240,9 @@ export default function Home() {
 
   const peakDisplacementMm = result ? result.peak_displacement_m * 1000 : 0;
 
-  const riskColor = result ? riskTextColor(result.resonance_risk) : "text-cyan-400";
+  const riskColor = result
+    ? riskTextColor(result.resonance_risk)
+    : "text-cyan-400";
 
   const riskBorder =
     result?.resonance_risk === "high"
@@ -337,13 +378,23 @@ export default function Home() {
               </div>
             </div>
 
-            <button
-              onClick={generateTwin}
-              disabled={loading}
-              className="mt-6 rounded-2xl bg-cyan-400 px-5 py-3 font-medium text-neutral-950 hover:bg-cyan-300 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {loading ? "Running..." : "Generate twin"}
-            </button>
+            <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+              <button
+                onClick={generateTwin}
+                disabled={loading}
+                className="rounded-2xl bg-cyan-400 px-5 py-3 font-medium text-neutral-950 hover:bg-cyan-300 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {loading ? "Running..." : "Generate from scenario"}
+              </button>
+
+              <button
+                onClick={runCurrentControls}
+                disabled={loading}
+                className="rounded-2xl border border-neutral-700 px-5 py-3 font-medium text-neutral-200 hover:border-cyan-400 hover:text-cyan-300 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Run current controls
+              </button>
+            </div>
           </div>
 
           <div className="rounded-3xl border border-neutral-800 bg-neutral-900/70 p-6">
