@@ -63,6 +63,33 @@ type OptimizationResult = {
   best_options: OptimizationCase[];
 };
 
+const scenarioPresets = [
+  {
+    name: "High resonance case",
+    description: "Default near-resonance machine mount.",
+    scenario:
+      "A rotating machine vibrates heavily at 480 RPM. The mount feels unstable and the vibration increases near operating speed.",
+  },
+  {
+    name: "Safe high-stiffness case",
+    description: "Same speed, but stiffer mount shifts natural frequency.",
+    scenario:
+      "A pump with mass 20 kg operates at 480 RPM. The mount stiffness is 125000 N/m, damping is 120 Ns/m, and excitation force is 100 N.",
+  },
+  {
+    name: "Low damping case",
+    description: "Weak damping increases vibration amplification.",
+    scenario:
+      "A fan with mass 20 kg vibrates at 480 RPM. The mount stiffness is 50000 N/m, damping is 20 Ns/m, and excitation force is 100 N.",
+  },
+  {
+    name: "Heavy pump case",
+    description: "Heavier equipment changes the natural frequency.",
+    scenario:
+      "A pump with mass 60 kg vibrates at 480 RPM. The mount stiffness is 50000 N/m, damping is 120 Ns/m, and excitation force is 100 N.",
+  },
+];
+
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
 }
@@ -74,9 +101,7 @@ function riskTextColor(risk: string) {
 }
 
 export default function Home() {
-  const [scenario, setScenario] = useState(
-    "A rotating machine vibrates heavily at 480 RPM. The mount feels unstable and the vibration increases near operating speed."
-  );
+  const [scenario, setScenario] = useState(scenarioPresets[0].scenario);
 
   const [result, setResult] = useState<SimulationResult | null>(null);
   const [interpretation, setInterpretation] =
@@ -378,6 +403,29 @@ export default function Home() {
               onChange={(event) => setScenario(event.target.value)}
             />
 
+            <div className="mt-5">
+              <p className="mb-3 text-sm text-neutral-400">
+                Example scenarios
+              </p>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                {scenarioPresets.map((preset) => (
+                  <button
+                    key={preset.name}
+                    onClick={() => setScenario(preset.scenario)}
+                    className="rounded-2xl border border-neutral-800 bg-neutral-950 p-4 text-left hover:border-cyan-400/60 hover:bg-neutral-900"
+                  >
+                    <p className="text-sm font-semibold text-neutral-100">
+                      {preset.name}
+                    </p>
+                    <p className="mt-1 text-xs leading-5 text-neutral-500">
+                      {preset.description}
+                    </p>
+                  </button>
+                ))}
+              </div>
+            </div>
+
             <div className="mt-6 grid gap-5">
               <div>
                 <label className="text-sm text-neutral-300">
@@ -602,7 +650,9 @@ export default function Home() {
               <div className="rounded-2xl border border-neutral-800 bg-neutral-950 p-5">
                 <div className="flex items-center justify-between">
                   <p className="font-semibold">Frequency proximity</p>
-                  <p className={riskColor}>{result.frequency_ratio.toFixed(2)}</p>
+                  <p className={riskColor}>
+                    {result.frequency_ratio.toFixed(2)}
+                  </p>
                 </div>
 
                 <div className="relative mt-5 h-3 rounded-full bg-neutral-800">
