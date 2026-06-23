@@ -1,12 +1,12 @@
 # ScenarioTwin AI
 
-ScenarioTwin AI is a full-stack engineering diagnostic platform that converts mechanical fault scenarios into simplified simulation models, runs a physics-based vibration analysis, diagnoses resonance risk, and recommends safer operating alternatives.
+ScenarioTwin AI is a full-stack engineering diagnostic platform that converts mechanical fault scenarios into simplified simulation models, runs physics-based vibration analysis, diagnoses resonance risk, recommends safer alternatives, and generates an engineering report.
 
 The current MVP focuses on rotating-machine vibration using a forced mass-spring-damper model.
 
-## What the app does
+## Demo workflow
 
-Users can describe a mechanical vibration scenario in natural language, for example:
+A user enters a scenario such as:
 
 ```text
 A pump with mass 30 kg vibrates at 700 RPM. The mount stiffness is 80000 N/m, damping is 300 Ns/m, and excitation force is 150 N.
@@ -23,32 +23,52 @@ ScenarioTwin AI then:
 7. Allows users to apply recommended changes and rerun the model.
 8. Produces an engineering report summary.
 
+## System architecture
+
+```mermaid
+flowchart LR
+    A[User scenario input] --> B[Next.js frontend]
+    B --> C[FastAPI backend]
+    C --> D[Scenario parser]
+    D --> E[Vibration solver]
+    E --> F[Simulation results]
+    F --> G[Diagnostic cockpit]
+    F --> H[Optimization engine]
+    H --> I[Recommended mitigation options]
+    I --> J[Apply option and rerun]
+    F --> K[Engineering report output]
+```
+
 ## Core features
 
 * Natural-language scenario parsing
+* Interactive model controls
+* Independent control runs
 * FastAPI backend
-* Python physics simulation engine
-* Forced vibration model
+* Python vibration solver
+* Forced mass-spring-damper simulation
 * Resonance risk classification
 * Frequency-ratio analysis
 * Peak displacement prediction
 * Optimization recommendations
 * Apply-option decision loop
-* Interactive frontend controls
 * Recharts displacement response graph
 * Auto-generated engineering report
+* GitHub-ready full-stack project structure
 
 ## Engineering model
 
-The first module uses a single-degree-of-freedom forced vibration model:
+The first module uses a single-degree-of-freedom forced vibration model.
 
-* Mass: machine or equipment mass
-* Stiffness: mount or support stiffness
-* Damping: viscous damping coefficient
-* Force: sinusoidal excitation force
-* RPM: rotating operating speed
+Inputs:
 
-The backend computes:
+* Mass, in kg
+* Mount stiffness, in N/m
+* Damping coefficient, in Ns/m
+* Excitation force, in N
+* Operating speed, in RPM
+
+Computed outputs:
 
 * Natural frequency
 * Forcing frequency
@@ -57,6 +77,16 @@ The backend computes:
 * Peak displacement
 * Steady-state amplitude
 * Resonance risk level
+
+## Optimization logic
+
+The optimization engine tests alternative operating and design conditions, including:
+
+* Modified mount stiffness
+* Increased damping
+* Shifted operating speed
+
+The alternatives are ranked by lowest simulated peak displacement. Users can apply a recommended option directly, causing the frontend controls, diagnostic cockpit, displacement graph, and report output to update.
 
 ## Tech stack
 
@@ -108,7 +138,7 @@ cd backend
 uvicorn main:app --reload
 ```
 
-The backend runs at:
+Backend:
 
 ```text
 http://127.0.0.1:8000
@@ -127,7 +157,7 @@ cd frontend
 npm.cmd run dev
 ```
 
-The frontend runs at:
+Frontend:
 
 ```text
 http://localhost:3000
@@ -167,15 +197,21 @@ POST /optimize/vibration
 
 Tests alternative stiffness, damping, and operating-speed settings, then ranks options by lowest simulated peak displacement.
 
-## Example workflow
+## Example use case
 
-1. Enter an engineering scenario.
-2. Click **Generate from scenario**.
-3. Review extracted model parameters.
-4. Inspect resonance risk and displacement response.
-5. Review optimization recommendations.
-6. Click **Apply option** to test a safer alternative.
-7. Copy the generated engineering report.
+Default near-resonance scenario:
+
+```text
+A rotating machine vibrates heavily at 480 RPM. The mount feels unstable and the vibration increases near operating speed.
+```
+
+Typical result:
+
+* Natural frequency near forcing frequency
+* Frequency ratio close to 1
+* High resonance risk
+* Large peak displacement
+* Mitigation options suggested by the optimizer
 
 ## Current MVP status
 
@@ -190,7 +226,8 @@ Implemented:
 * Optimization recommendations
 * Apply-option rerun workflow
 * Engineering report output
-* Git version control checkpointing
+* Git version control
+* GitHub repository
 
 Planned improvements:
 
@@ -199,7 +236,6 @@ Planned improvements:
 * PDF report export
 * Better optimization constraints
 * Deployment
-* Architecture diagram
 * Demo screenshots and video
 * More detailed validation examples
 
