@@ -242,3 +242,9 @@ Planned improvements:
 ## Disclaimer
 
 This project is an educational engineering simulation tool. The current model is intentionally simplified and should not be used for real-world safety-critical design decisions without professional validation.
+
+## Live Demo
+
+- Web app: https://scenariotwin-ai.vercel.app
+- API health check: https://scenariotwin-ai.vercel.app/api/
+
